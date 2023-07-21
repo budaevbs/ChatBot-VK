@@ -8,20 +8,20 @@ from core import VkTools
 
 
 class BotInterface():
-
     def __init__(self, comunity_token, access_token):
         self.interface = vk_api.VkApi(token=comunity_token)
-        self.api = VkTools(access_token)
-        self.params = None
+        self.vk_tools = VkTools(access_token)
+        self.params = {}
+        self.worksheets = []
+        self.offset = 0
 
     def message_send(self, user_id, message, attachment=None):
-        self.interface.method('messages.send',
-                              {'user_id': user_id,
-                               'message': message,
-                               'attachment': attachment,
-                               'random_id': get_random_id()
-                               }
-                              )
+        self.interface.method('messages.send', {
+            'user_id': user_id,
+            'message': message,
+            'attachment': attachment,
+            'random_id': get_random_id()
+        })
 
     def event_handler(self):
         longpoll = VkLongPoll(self.interface)
@@ -31,32 +31,44 @@ class BotInterface():
                 command = event.text.lower()
 
                 if command == 'привет':
-                    self.params = self.api.get_profile_info(event.user_id)
+                    self.params = self.vk_tools.get_profile_info(event.user_id)
                     self.message_send(event.user_id, f'здравствуй {self.params["name"]}')
                 elif command == 'поиск':
                     self.message_send(event.user_id, 'Начинаем поиск.')
-                    users = self.api.search_users(self.params)
-                    user = users.pop()
-                    # здесь логика дял проверки бд
-                    photos_user = self.api.get_photos(user['id'])
+                    if self.worksheets == self.vk_tools.search_worksheet(self.params, self.offset):
+                        worksheet = self.worksheets.pop()
+                        photos = self.vk_tools.get_photos(worksheet['id'])
+                        photo_string = ''
+                        for photo in photos:
+                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                    else:
+                        self.worksheets = self.vk_tools.search_worksheet(self.params, self.offset)
+                        worksheet = self.worksheets.pop()
+                        photos = self.vk_tools.get_photos(worksheet['id'])
+                        photo_string = ''
+                        for photo in photos:
+                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                        self.offset += 10
 
-                    attachment = ''
-                    for num, photo in enumerate(photos_user):
-                        attachment += f'photo{photo["owner_id"]}_{photo["id"]}'
-                        if num == 2:
-                            break
-                    self.message_send(event.user_id,
-                                      f'Встречайте {user["name"]}',
-                                      attachment=attachment
-                                      )
-                    # здесь логика для добавленяи в бд
+                        self.message_send(event.user_id,
+                                          f'имя: {worksheet["name"]} ссылка: vk.com/{worksheet["id"]}',
+                                          attachment=photo_string,
+                                          )
+
+                        users = self.api.search_users(self.params)
+                        user = users.pop()
+                        # здесь логика для проверки бд
+                        photos_user = self.api.get_photos(user['id'])
+
+                        attachment = ''
+                        for num, photo in enumerate(photos_user):
+                            attachment += f'photo{photo["owner_id"]}_{photo["id"]}'
+                            if num == 2:
+                                break
+                        self.message_send(event.user_id,
+                                          f'Встречайте {user["name"]}',
+                                          attachment=attachment
+                                          )
+                        # здесь логика для добавления в бд
                 elif command == 'пока':
                     self.message_send(event.user_id, 'До новых встреч.')
-                else:
-                    self.message_send(event.user_id, 'команда не опознана')
-
-
-if __name__ == '__main__':
-    bot = BotInterface(comunity_token, access_token)
-    bot.event_handler()
-
